@@ -168,7 +168,7 @@
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhpYmZiZmpsZndvYnptbXhndW1yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NDQ3MzEsImV4cCI6MjA4MDAyMDczMX0.2KBbfu0hhTGq49xtoUuHvScZJ6XiBXAgAZBYjCoFJC0'; 
         
         // *******************************************************************
-        //  ✅ CLAVE DE GEMINI INTEGRADA: AIzaSyDbqo4FdlrFt84nTS9SYnx7maUH27lF4ws
+        //  ⚠️ CLAVE DE GEMINI: REEMPLAZA ESTA CADENA EN TU VERSIÓN PRIVADA ⚠️
         // *******************************************************************
         const GEMINI_API_KEY = "AIzaSyDbqo4FdlrFt84nTS9SYnx7maUH27lF4ws"; 
         
@@ -194,7 +194,8 @@
         window.startQuiz = startQuiz; 
         window.checkAnswer = checkAnswer; 
         window.endQuiz = endQuiz; 
-        window.speakTerm = speakTerm; // Nueva función para Texto a Voz
+        window.speakTerm = speakTerm; 
+        window.nextQuizQuestion = nextQuizQuestion; // <--- ¡LA CORRECCIÓN ESTÁ AQUÍ!
 
         // --- Utilidades para Texto a Voz (TTS) ---
 
@@ -410,6 +411,23 @@
             nextBtn.disabled = currentCardIndex === currentVocabulary.length - 1;
         }
 
+        /** Alterna entre la vista de Flashcard y la vista de Quiz */
+        function toggleView(showQuiz) {
+            isQuizMode = showQuiz;
+            document.getElementById('flashcard-view').classList.toggle('hidden', showQuiz);
+            document.getElementById('quiz-view').classList.toggle('hidden', !showQuiz);
+            document.getElementById('saveBtn').classList.toggle('hidden', showQuiz || currentVocabulary.length === 0);
+            document.getElementById('quizBtn').classList.toggle('hidden', showQuiz || currentVocabulary.length === 0);
+        }
+
+        /** Alterna el volteo de una tarjeta. */
+        function flipCard(index) {
+            const cardEl = document.getElementById(`card-${index}`);
+            if (cardEl) {
+                cardEl.classList.toggle('flipped');
+            }
+        }
+
         /** Muestra la tarjeta en el índice especificado, desplazando el contenedor. */
         function showCard(index) {
             currentCardIndex = index;
@@ -442,16 +460,6 @@
                 showCard(currentCardIndex + 1);
             }
         }
-
-        /** Alterna entre la vista de Flashcard y la vista de Quiz */
-        function toggleView(showQuiz) {
-            isQuizMode = showQuiz;
-            document.getElementById('flashcard-view').classList.toggle('hidden', showQuiz);
-            document.getElementById('quiz-view').classList.toggle('hidden', !showQuiz);
-            document.getElementById('saveBtn').classList.toggle('hidden', showQuiz || currentVocabulary.length === 0);
-            document.getElementById('quizBtn').classList.toggle('hidden', showQuiz || currentVocabulary.length === 0);
-        }
-
 
         /** Renderiza la lista de tarjetas de vocabulario. */
         function renderFlashcards(vocabList) {
@@ -624,311 +632,295 @@
                     .from('finance_vocab_sets')
                     .insert([
                         {
+                            user_id: userId,
                             topic: topic,
-                            user_id: userId, // Usamos el ID generado por la aplicación
-                            vocabulary: currentVocabulary,
                             count: currentVocabulary.length,
+                            vocabulary: currentVocabulary
                         }
                     ]);
 
                 if (error) throw error;
 
-                // Después de guardar, recargar la lista
-                await loadSavedSets();
-                setStatus(false, "¡Lista de estudio guardada con éxito en Supabase!");
-                document.getElementById('saveBtn').classList.add('hidden'); 
+                setStatus(false, `¡Lista "${topic}" guardada con éxito!`);
+                
             } catch (error) {
                 console.error("Error al guardar en Supabase:", error);
-                setStatus(false, `Error al guardar: ${error.message}. Asegúrate de que la tabla y RLS están configurados.`);
+                setStatus(false, `Error al guardar: ${error.message}. Revisa la configuración de tu tabla y RLS.`);
             } finally {
                 document.getElementById('saveBtn').disabled = false;
             }
         }
 
-        /** Carga los sets guardados por el usuario. */
+        /** Carga todas las listas guardadas del usuario. */
         async function loadSavedSets() {
-            if (!supabase || !userId) return;
+            if (!userId) return;
 
-            const listElement = document.getElementById('saved-sets-list');
-            listElement.innerHTML = '<p class="text-gray-500 italic">Cargando listas guardadas desde Supabase...</p>';
+            const listEl = document.getElementById('saved-sets-list');
+            listEl.innerHTML = '<p class="text-gray-500 italic">Cargando listas guardadas...</p>';
 
             try {
-                // Obtener solo los sets de este usuario
-                const { data: savedSets, error } = await supabase
+                // Usamos un filtro simple por user_id, ordenando por fecha de creación descendente
+                const { data, error } = await supabase
                     .from('finance_vocab_sets')
-                    .select('id, created_at, topic, count, vocabulary') // Solo seleccionamos los campos necesarios
+                    .select('*')
                     .eq('user_id', userId)
-                    .order('created_at', { ascending: false }); // Ordenar por más reciente
+                    .order('created_at', { ascending: false });
 
                 if (error) throw error;
                 
-                if (!savedSets || savedSets.length === 0) {
-                    listElement.innerHTML = '<p class="text-gray-500">Aún no has guardado ninguna lista de vocabulario.</p>';
+                listEl.innerHTML = '';
+                if (data.length === 0) {
+                    listEl.innerHTML = '<p class="text-gray-500 italic">Aún no has guardado ninguna lista de vocabulario.</p>';
                     return;
                 }
 
-                listElement.innerHTML = savedSets.map(set => {
-                    const date = new Date(set.created_at).toLocaleDateString() || 'N/A';
-                    
-                    const encodedVocab = encodeURIComponent(JSON.stringify(set.vocabulary));
-                    
-                    return `
-                        <div class="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                            <div class="flex-grow">
-                                <p class="font-semibold text-blue-700">${set.topic}</p>
-                                <p class="text-sm text-gray-500">${set.count} términos • Guardado el ${date}</p>
+                data.forEach(set => {
+                    const date = new Date(set.created_at).toLocaleDateString();
+                    const itemHtml = `
+                        <div class="flex justify-between items-center bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200">
+                            <div>
+                                <p class="text-lg font-semibold text-gray-800">${set.topic || 'Sin título'}</p>
+                                <p class="text-sm text-gray-500">${set.count} términos | Guardado el ${date}</p>
                             </div>
-                            <div class="space-x-2 flex-shrink-0">
-                                <button onclick="viewSet('${set.topic.replace(/'/g, "\\'")}', '${encodedVocab}')"
-                                        class="text-blue-500 hover:text-blue-700 font-medium text-sm">
+                            <div class="flex space-x-3">
+                                <button onclick="viewSet('${set.id}')"
+                                        class="text-blue-600 hover:text-blue-800 font-medium">
                                     Ver
                                 </button>
-                                <button onclick="deleteSet('${set.id}')"
-                                        class="text-red-500 hover:text-red-700 font-medium text-sm">
+                                <button onclick="deleteSet('${set.id}', '${set.topic}')"
+                                        class="text-red-600 hover:text-red-800 font-medium">
                                     Eliminar
                                 </button>
                             </div>
                         </div>
                     `;
-                }).join('');
+                    listEl.insertAdjacentHTML('beforeend', itemHtml);
+                });
 
             } catch (error) {
-                console.error("Error al cargar las listas guardadas desde Supabase:", error);
-                listElement.innerHTML = `<p class="text-red-500">Error al cargar las listas: ${error.message}</p>`;
+                console.error("Error al cargar en Supabase:", error);
+                listEl.innerHTML = `<p class="text-red-500 font-medium">Error al cargar listas: ${error.message}.</p>`;
             }
         }
-        
-        /** Muestra un set de vocabulario guardado. */
-        function viewSet(topic, encodedVocab) {
+
+        /** Carga un set de vocabulario guardado y lo muestra en las flashcards. */
+        async function viewSet(setId) {
+            setStatus(true, "Cargando lista guardada...");
             try {
-                const vocab = JSON.parse(decodeURIComponent(encodedVocab));
-                document.getElementById('topicInput').value = topic;
+                const { data, error } = await supabase
+                    .from('finance_vocab_sets')
+                    .select('*')
+                    .eq('id', setId)
+                    .single();
 
-                renderFlashcards(vocab);
-                setStatus(false, `Lista "${topic}" cargada con éxito. ¡A estudiar!`);
-                document.getElementById('saveBtn').classList.add('hidden'); 
+                if (error) throw error;
+                
+                document.getElementById('topicInput').value = data.topic;
+                renderFlashcards(data.vocabulary);
+                setStatus(false, `Lista "${data.topic}" cargada con éxito.`);
+
             } catch (error) {
-                console.error("Error al visualizar el set:", error);
-                setStatus(false, "Error al cargar el set de vocabulario.");
+                console.error("Error al ver el set:", error);
+                setStatus(false, `Error: No se pudo cargar la lista.`);
             }
         }
-        
-        /** Elimina un set de vocabulario guardado. */
-        async function deleteSet(docId) {
-            const confirmationModal = document.createElement('div');
-            confirmationModal.className = 'fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50';
-            confirmationModal.innerHTML = `
-                <div class="bg-white p-6 rounded-lg shadow-2xl max-w-sm mx-auto">
-                    <h3 class="text-xl font-bold text-gray-800 mb-4">Confirmar Eliminación</h3>
-                    <p class="text-gray-600 mb-6">¿Estás seguro de que quieres eliminar esta lista de estudio de forma permanente?</p>
-                    <div class="flex justify-end space-x-4">
-                        <button id="cancelDelete" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">Cancelar</button>
-                        <button id="confirmDelete" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">Eliminar</button>
+
+        /** Elimina un set de vocabulario guardado (usando un modal simple para confirmar). */
+        function deleteSet(setId, topic) {
+            const confirmDelete = document.createElement('div');
+            confirmDelete.className = 'fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50';
+            confirmDelete.innerHTML = `
+                <div class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-sm">
+                    <h3 class="text-lg font-bold mb-4">Confirmar Eliminación</h3>
+                    <p class="text-gray-700 mb-6">¿Estás seguro de que deseas eliminar la lista "${topic}"?</p>
+                    <div class="flex justify-end space-x-3">
+                        <button id="cancelDelete" class="py-2 px-4 bg-gray-300 rounded-lg hover:bg-gray-400">Cancelar</button>
+                        <button id="confirmDeleteBtn" class="py-2 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700">Eliminar</button>
                     </div>
                 </div>
             `;
-            document.body.appendChild(confirmationModal);
+            document.body.appendChild(confirmDelete);
 
-            document.getElementById('cancelDelete').onclick = () => {
-                document.body.removeChild(confirmationModal);
-            };
-            
-            document.getElementById('confirmDelete').onclick = async () => {
-                document.body.removeChild(confirmationModal);
-                
-                if (!supabase || !userId) {
-                    setStatus(false, "Error de identificación al intentar eliminar.");
-                    return;
-                }
-
-                try {
-                    // Eliminar de la tabla 'finance_vocab_sets' donde el ID coincida
-                    const { error } = await supabase
-                        .from('finance_vocab_sets')
-                        .delete()
-                        .eq('id', docId);
-
-                    if (error) throw error;
-                    
-                    // Recargar la lista después de la eliminación
-                    await loadSavedSets();
-                    setStatus(false, "Lista eliminada correctamente.");
-                } catch (error) {
-                    console.error("Error al eliminar el documento en Supabase:", error);
-                    setStatus(false, `Error al eliminar la lista: ${error.message}`);
-                }
+            document.getElementById('cancelDelete').onclick = () => confirmDelete.remove();
+            document.getElementById('confirmDeleteBtn').onclick = async () => {
+                confirmDelete.remove();
+                await performDelete(setId, topic);
             };
         }
 
-        /** Voltea la tarjeta al hacer clic. */
-        function flipCard(index) {
-            const card = document.getElementById(`card-${index}`);
-            card.classList.toggle('flipped');
+        async function performDelete(setId, topic) {
+            setStatus(true, `Eliminando lista "${topic}"...`);
+            try {
+                const { error } = await supabase
+                    .from('finance_vocab_sets')
+                    .delete()
+                    .eq('id', setId);
+
+                if (error) throw error;
+
+                setStatus(false, `Lista "${topic}" eliminada con éxito.`);
+                loadSavedSets(); // Recargar la lista
+            } catch (error) {
+                console.error("Error al eliminar en Supabase:", error);
+                setStatus(false, `Error al eliminar: ${error.message}`);
+            }
         }
 
         // --- Lógica del Quiz ---
 
-        /** Mezcla un array (Algoritmo de Fisher-Yates) */
-        function shuffleArray(array) {
-            for (let i = array.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [array[i], array[j]] = [array[j], array[i]];
-            }
-            return array;
-        }
-
-        /** Prepara las preguntas del quiz a partir del vocabulario cargado. */
+        /** Prepara las preguntas de selección múltiple. */
         function prepareQuizQuestions() {
-            if (currentVocabulary.length === 0) return [];
-
-            const allConcepts = currentVocabulary.map(item => item.spanishConcept);
-            const questions = [];
-
-            currentVocabulary.forEach(correctItem => {
-                let incorrectConcepts = allConcepts.filter(c => c !== correctItem.spanishConcept);
-                shuffleArray(incorrectConcepts);
-
-                // Tomar 3 opciones incorrectas (o menos si hay menos de 3)
-                const options = [
-                    correctItem.spanishConcept,
-                    ...(incorrectConcepts.slice(0, 3))
-                ];
+            quizQuestions = currentVocabulary.map((correctItem, index) => {
+                const question = correctItem.spanishConcept;
+                const correctAnswer = correctItem.term;
                 
-                shuffleArray(options); // Mezclar las opciones
+                // Generar distractores (3 incorrectos)
+                let distractors = currentVocabulary
+                    .filter(item => item.term !== correctAnswer)
+                    .map(item => item.term);
                 
-                questions.push({
-                    term: correctItem.term,
-                    correctConcept: correctItem.spanishConcept,
+                // Asegurar que haya suficientes distractores (si la lista es corta)
+                if (distractors.length < 3) {
+                    // Si no hay suficientes, repetimos algunos o usamos los disponibles
+                    while (distractors.length < 3 && currentVocabulary.length > 1) {
+                        const randomItem = currentVocabulary[Math.floor(Math.random() * currentVocabulary.length)];
+                        if (!distractors.includes(randomItem.term) && randomItem.term !== correctAnswer) {
+                            distractors.push(randomItem.term);
+                        }
+                    }
+                    if (distractors.length > 3) distractors = distractors.slice(0, 3);
+                    else if (distractors.length < 3) {
+                         // Si es imposible tener 3 únicos, usamos lo que haya
+                         while(distractors.length < 3) distractors.push("Otro Término");
+                    }
+                } else {
+                    // Seleccionar 3 distractores al azar
+                    distractors = distractors.sort(() => 0.5 - Math.random()).slice(0, 3);
+                }
+
+                const options = [...distractors, correctAnswer];
+                // Mezclar las opciones
+                options.sort(() => 0.5 - Math.random());
+
+                return {
+                    index: index + 1,
+                    question: question,
                     options: options,
-                    answered: false
-                });
+                    correctAnswer: correctAnswer
+                };
             });
-
-            return shuffleArray(questions); // Mezclar el orden de las preguntas
         }
 
-        /** Inicia el modo Quiz. */
+
+        /** Inicia el modo quiz. */
         function startQuiz() {
             if (currentVocabulary.length === 0) {
-                setStatus(false, "¡Primero genera o carga una lista de vocabulario para empezar el quiz!");
+                setStatus(false, "No hay vocabulario para iniciar el quiz.");
                 return;
             }
-
-            quizQuestions = prepareQuizQuestions();
+            prepareQuizQuestions();
             currentQuizIndex = 0;
             score = 0;
-            toggleView(true); // Cambiar a la vista de Quiz
+            toggleView(true);
+            document.getElementById('quiz-title').textContent = `Quiz: ${document.getElementById('topicInput').value || 'Lista de Estudio'}`;
+            document.getElementById('quiz-feedback').classList.add('hidden');
+            document.getElementById('nextQuizBtn').classList.add('hidden');
+            document.getElementById('endQuizBtn').classList.add('hidden');
             renderQuizQuestion();
         }
 
-        /** Renderiza la pregunta actual del quiz. */
+        /** Muestra la pregunta actual del quiz. */
         function renderQuizQuestion() {
-            const questionContainer = document.getElementById('quiz-question-container');
-            const feedbackEl = document.getElementById('quiz-feedback');
+            const container = document.getElementById('quiz-question-container');
+            const feedback = document.getElementById('quiz-feedback');
             const nextBtn = document.getElementById('nextQuizBtn');
             const endBtn = document.getElementById('endQuizBtn');
-            const quizScoreEl = document.getElementById('quiz-score');
-
-            feedbackEl.classList.add('hidden');
-            nextBtn.classList.add('hidden');
             
+            feedback.classList.add('hidden');
+            nextBtn.classList.add('hidden');
+            endBtn.classList.add('hidden');
+
             if (currentQuizIndex >= quizQuestions.length) {
-                // Final del quiz
-                questionContainer.innerHTML = `
-                    <div class="p-6 bg-green-50 rounded-xl text-center">
-                        <h3 class="text-2xl font-bold text-green-700 mb-3">¡Quiz Finalizado!</h3>
-                        <p class="text-xl text-gray-700">Tu puntuación final es:</p>
-                        <p class="text-5xl font-extrabold text-green-600 mt-2">${score} / ${quizQuestions.length}</p>
-                        <p class="mt-4 text-gray-500">¡Vuelve a intentarlo para mejorar tu marca!</p>
+                // Fin del Quiz
+                container.innerHTML = `
+                    <div class="text-center py-10">
+                        <h3 class="text-3xl font-bold text-green-600 mb-4">¡Quiz Terminado!</h3>
+                        <p class="text-2xl text-gray-700">Tu Puntuación Final es:</p>
+                        <p class="text-5xl font-extrabold text-blue-600 mt-2">${score} / ${quizQuestions.length}</p>
                     </div>
                 `;
-                endBtn.classList.remove('hidden');
-                quizScoreEl.innerHTML = '';
+                endBtn.classList.remove('hidden'); // Botón para volver a flashcards
+                document.getElementById('quiz-score').textContent = "";
                 return;
             }
 
-            const question = quizQuestions[currentQuizIndex];
-            const currentTopic = document.getElementById('topicInput').value.trim();
-            
-            document.getElementById('quiz-title').textContent = `Quiz: ${currentTopic || 'Vocabulario'} (${currentQuizIndex + 1}/${quizQuestions.length})`;
-            quizScoreEl.innerHTML = `Puntuación actual: <span class="font-bold text-purple-600">${score}</span>`;
+            const q = quizQuestions[currentQuizIndex];
+            document.getElementById('quiz-score').textContent = `Pregunta ${q.index} de ${quizQuestions.length} | Aciertos: ${score}`;
 
-            // Crear las opciones de respuesta
-            const optionsHtml = question.options.map((option, index) => `
-                <button onclick="checkAnswer(this, '${option.replace(/'/g, "\\'")}')"
-                        data-option="${option}"
-                        class="w-full text-left p-4 my-2 border border-gray-300 rounded-lg bg-gray-50 hover:bg-gray-200 transition duration-150 focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-800 disabled:opacity-100">
-                    ${String.fromCharCode(65 + index)}. ${option}
+            const optionsHtml = q.options.map((option, i) => `
+                <button data-answer="${option}" onclick="checkAnswer(this, '${q.correctAnswer}')"
+                        class="quiz-option w-full text-left p-4 mb-3 border border-gray-300 rounded-lg hover:bg-blue-50 transition duration-150 focus:outline-none bg-white font-medium text-gray-800">
+                    ${option}
                 </button>
             `).join('');
 
-            // Construir la pregunta
-            questionContainer.innerHTML = `
-                <div class="mb-6 p-4 bg-purple-50 border-l-4 border-purple-400 rounded-md">
-                    <p class="text-xl font-semibold text-purple-800">¿Cuál es el concepto en español para el término:</p>
-                    <p class="text-3xl font-extrabold text-purple-900 mt-2">"${question.term}"</p>
+            container.innerHTML = `
+                <div class="mb-4 p-4 bg-gray-100 rounded-lg">
+                    <p class="text-xl font-semibold text-gray-800">¿Cuál es el término en inglés para el concepto:</p>
+                    <p class="text-2xl font-bold text-purple-600 mt-2">"${q.question}"</p>
                 </div>
-                <div id="options-container" class="space-y-2">
+                <div id="options-container" class="space-y-3">
                     ${optionsHtml}
                 </div>
             `;
-            endBtn.classList.add('hidden');
         }
 
-        /** Verifica la respuesta seleccionada. */
-        function checkAnswer(selectedButton, selectedConcept) {
-            if (quizQuestions[currentQuizIndex].answered) return;
-            
-            const question = quizQuestions[currentQuizIndex];
-            question.answered = true;
-            const isCorrect = selectedConcept === question.correctConcept;
-            const feedbackEl = document.getElementById('quiz-feedback');
-            const optionsContainer = document.getElementById('options-container');
+        /** Comprueba si la respuesta seleccionada es correcta. */
+        function checkAnswer(selectedBtn, correctAnswer) {
+            const isCorrect = selectedBtn.getAttribute('data-answer') === correctAnswer;
+            const feedback = document.getElementById('quiz-feedback');
             const nextBtn = document.getElementById('nextQuizBtn');
-            
+            const options = document.querySelectorAll('.quiz-option');
+
             // Deshabilitar todas las opciones
-            Array.from(optionsContainer.children).forEach(btn => {
+            options.forEach(btn => {
                 btn.disabled = true;
+                if (btn.getAttribute('data-answer') === correctAnswer) {
+                    btn.classList.add('bg-green-100', 'border-green-600');
+                }
             });
 
+            // Resaltar la selección del usuario
             if (isCorrect) {
                 score++;
-                feedbackEl.classList.remove('hidden', 'bg-red-100', 'text-red-800');
-                feedbackEl.classList.add('bg-green-100', 'text-green-800');
-                feedbackEl.textContent = "¡Correcto! Puntuación: " + score;
-                selectedButton.classList.add('bg-green-500', 'text-white', 'font-bold', 'border-green-700');
+                feedback.textContent = "¡Correcto! ✅";
+                feedback.className = 'mt-4 p-3 rounded-lg font-semibold bg-green-100 text-green-800';
+                selectedBtn.classList.add('bg-green-500', 'text-white');
             } else {
-                feedbackEl.classList.remove('hidden', 'bg-green-100', 'text-green-800');
-                feedbackEl.classList.add('bg-red-100', 'text-red-800');
-                feedbackEl.textContent = `Incorrecto. La respuesta correcta era: "${question.correctConcept}"`;
-                selectedButton.classList.add('bg-red-500', 'text-white', 'font-bold', 'border-red-700');
-                
-                // Resaltar la respuesta correcta
-                Array.from(optionsContainer.children).forEach(btn => {
-                    if (btn.dataset.option === question.correctConcept) {
-                        btn.classList.add('border-green-700', 'bg-green-200', 'text-green-900');
-                    }
-                });
+                feedback.textContent = `Incorrecto. ❌ La respuesta correcta es: ${correctAnswer}.`;
+                feedback.className = 'mt-4 p-3 rounded-lg font-semibold bg-red-100 text-red-800';
+                selectedBtn.classList.add('bg-red-500', 'text-white');
             }
-            
+
+            feedback.classList.remove('hidden');
             nextBtn.classList.remove('hidden');
-            document.getElementById('quiz-score').innerHTML = `Puntuación actual: <span class="font-bold text-purple-600">${score}</span>`;
+            document.getElementById('quiz-score').textContent = `Pregunta ${currentQuizIndex + 1} de ${quizQuestions.length} | Aciertos: ${score}`;
         }
 
-        /** Pasa a la siguiente pregunta del quiz. */
+        /** Avanza a la siguiente pregunta del quiz. */
         function nextQuizQuestion() {
             currentQuizIndex++;
             renderQuizQuestion();
         }
 
-        /** Termina el quiz y regresa a la vista de flashcards. */
+        /** Finaliza el quiz y regresa a la vista de flashcards. */
         function endQuiz() {
-            toggleView(false); // Regresar a la vista de Flashcard
-            setStatus(false, `Quiz finalizado. Obtuviste ${score} de ${quizQuestions.length} preguntas.`);
+            toggleView(false);
+            // Mostrar la primera tarjeta del set que se estaba estudiando
+            showCard(0); 
         }
 
-
-        // Iniciar la aplicación al cargar la página
+        // --- Inicio de la Aplicación ---
         window.onload = initSupabase;
     </script>
 </body>
