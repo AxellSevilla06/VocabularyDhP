@@ -52,10 +52,7 @@
             -ms-overflow-style: none;  /* IE and Edge */
             scrollbar-width: none;  /* Firefox */
         }
-        /* Cursor de espera al cargar TTS */
-        .cursor-wait-tts {
-            cursor: wait !important;
-        }
+        /* El cursor de espera ya no es necesario con SpeechSynthesis, pero lo mantenemos limpio */
     </style>
 </head>
 <body>
@@ -168,7 +165,7 @@
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhpYmZiZmpsZndvYnptbXhndW1yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NDQ3MzEsImV4cCI6MjA4MDAyMDczMX0.2KBbfu0hhTGq49xtoUuHvScZJ6XiBXAgAZBYjCoFJC0'; 
         
         // *******************************************************************
-        //  ⚠️ CLAVE DE GEMINI: REEMPLAZA ESTA CADENA EN TU VERSIÓN PRIVADA ⚠️
+        //  CLAVE DE GEMINI: Usada solo para generación de texto (Vocabulario)
         // *******************************************************************
         const GEMINI_API_KEY = "AIzaSyDbqo4FdlrFt84nTS9SYnx7maUH27lF4ws"; 
         
@@ -195,139 +192,34 @@
         window.checkAnswer = checkAnswer; 
         window.endQuiz = endQuiz; 
         window.speakTerm = speakTerm; 
-        window.nextQuizQuestion = nextQuizQuestion; // <--- ¡LA CORRECCIÓN ESTÁ AQUÍ!
+        window.nextQuizQuestion = nextQuizQuestion; 
 
-        // --- Utilidades para Texto a Voz (TTS) ---
-
-        /** Convierte un Base64 a ArrayBuffer. */
-        function base64ToArrayBuffer(base64) {
-            const binaryString = atob(base64);
-            const len = binaryString.length;
-            const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-            return bytes.buffer;
-        }
-
-        /** Crea un archivo WAV a partir de datos PCM. */
-        function pcmToWav(pcm16, sampleRate) {
-            const numChannels = 1;
-            const bytesPerSample = 2; // Int16
-            const blockAlign = numChannels * bytesPerSample;
-            const byteRate = sampleRate * blockAlign;
-            const dataLength = pcm16.byteLength;
-            const buffer = new ArrayBuffer(44 + dataLength);
-            const view = new DataView(buffer);
-
-            // Funciones de utilidad para escribir en el DataView
-            const writeString = (view, offset, string) => {
-                for (let i = 0; i < string.length; i++) {
-                    view.setUint8(offset + i, string.charCodeAt(i));
-                }
-            };
-
-            // RIFF chunk descriptor
-            writeString(view, 0, 'RIFF');
-            view.setUint32(4, 36 + dataLength, true); // ChunkSize
-            writeString(view, 8, 'WAVE');
-
-            // fmt sub-chunk
-            writeString(view, 12, 'fmt ');
-            view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
-            view.setUint16(20, 1, true); // AudioFormat (1 for PCM)
-            view.setUint16(22, numChannels, true); // NumChannels
-            view.setUint32(24, sampleRate, true); // SampleRate
-            view.setUint32(28, byteRate, true); // ByteRate
-            view.setUint16(32, blockAlign, true); // BlockAlign
-            view.setUint16(34, 16, true); // BitsPerSample (16-bit)
-
-            // data sub-chunk
-            writeString(view, 36, 'data');
-            view.setUint32(40, dataLength, true); // Subchunk2Size
-
-            // Escribir los datos PCM
-            let offset = 44;
-            for (let i = 0; i < pcm16.length; i++, offset += 2) {
-                view.setInt16(offset, pcm16[i], true);
-            }
-
-            return new Blob([buffer], { type: 'audio/wav' });
-        }
+        // --- Utilidades de Texto a Voz (SpeechSynthesis API Nativa) ---
         
-        /** Genera y reproduce el audio de un término en inglés. */
-        async function speakTerm(term, iconId) {
-            const icon = document.getElementById(iconId);
-            if (icon.classList.contains('cursor-wait-tts')) return; // Evitar clics múltiples
+        /** Genera y reproduce el audio de un término en inglés usando la API nativa. */
+        function speakTerm(term) {
+            if ('speechSynthesis' in window) {
+                // Cancelar cualquier síntesis en curso
+                window.speechSynthesis.cancel(); 
 
-            icon.classList.add('cursor-wait-tts');
-            icon.classList.add('animate-pulse');
-
-            try {
-                // El modelo Kore tiene una voz firme y clara.
-                const prompt = `Say in a clear professional voice: ${term}`;
-                const payload = {
-                    contents: [{
-                        parts: [{ text: prompt }]
-                    }],
-                    generationConfig: {
-                        responseModalities: ["AUDIO"],
-                        speechConfig: {
-                            voiceConfig: {
-                                prebuiltVoiceConfig: { voiceName: "Kore" }
-                            }
-                        }
-                    },
-                };
+                const utterance = new SpeechSynthesisUtterance(term);
+                // Intenta usar una voz en inglés americano, si está disponible
+                utterance.lang = 'en-US'; 
                 
-                const apiKey = GEMINI_API_KEY; 
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
-
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                if (!response.ok) {
-                    throw new Error(`TTS API Error: ${response.statusText}`);
+                // Opcional: intentar seleccionar una voz específica
+                const voices = window.speechSynthesis.getVoices();
+                const enVoice = voices.find(voice => voice.lang === 'en-US' || voice.lang === 'en_US');
+                if (enVoice) {
+                    utterance.voice = enVoice;
+                } else {
+                    // Si no encuentra voz en-US, usa la predeterminada (que suele ser en-GB o la del sistema)
                 }
 
-                const result = await response.json();
-                const part = result?.candidates?.[0]?.content?.parts?.[0];
-                const audioData = part?.inlineData?.data;
-                const mimeType = part?.inlineData?.mimeType;
+                window.speechSynthesis.speak(utterance);
 
-                if (!audioData || !mimeType || !mimeType.startsWith("audio/L16")) {
-                    throw new Error("TTS response missing or invalid audio data.");
-                }
-
-                // Extraer el Sample Rate del mimeType (ej: "audio/L16;rate=24000")
-                const rateMatch = mimeType.match(/rate=(\d+)/);
-                const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
-                
-                const pcmData = base64ToArrayBuffer(audioData);
-                const pcm16 = new Int16Array(pcmData);
-                
-                // 1. Convertir PCM a Blob WAV
-                const wavBlob = pcmToWav(pcm16, sampleRate);
-                
-                // 2. Crear URL para el Blob y reproducir
-                const audioUrl = URL.createObjectURL(wavBlob);
-                const audio = new Audio(audioUrl);
-                audio.play();
-
-                // Liberar la URL del Blob después de que termine de reproducirse
-                audio.onended = () => {
-                    URL.revokeObjectURL(audioUrl);
-                };
-
-            } catch (error) {
-                console.error("Error al generar o reproducir TTS:", error);
-                setStatus(false, `Error TTS: No se pudo reproducir el audio de "${term}".`);
-            } finally {
-                icon.classList.remove('cursor-wait-tts');
-                icon.classList.remove('animate-pulse');
+            } else {
+                console.error("Speech Synthesis no es soportado por este navegador.");
+                setStatus(false, "Error: La función de voz no es soportada por tu navegador.");
             }
         }
 
@@ -484,9 +376,8 @@
                                     <div class="flex items-center space-x-2">
                                         <p class="text-4xl font-extrabold text-blue-800">${item.term}</p>
                                         <!-- Botón TTS -->
-                                        <button onclick="event.stopPropagation(); speakTerm('${item.term}', 'tts-icon-${index}')"
-                                                class="text-blue-500 hover:text-blue-700 p-2 rounded-full transition duration-150 focus:outline-none"
-                                                id="tts-icon-${index}">
+                                        <button onclick="event.stopPropagation(); speakTerm('${item.term.replace(/'/g, "\\'")}')"
+                                                class="text-blue-500 hover:text-blue-700 p-2 rounded-full transition duration-150 focus:outline-none">
                                             <!-- Icono de altavoz (lucide-react icon: Volume2) -->
                                             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-volume-2">
                                                 <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
@@ -645,7 +536,8 @@
                 
             } catch (error) {
                 console.error("Error al guardar en Supabase:", error);
-                setStatus(false, `Error al guardar: ${error.message}. Revisa la configuración de tu tabla y RLS.`);
+                // MEJORA DE ERROR: Muestra el mensaje exacto de Supabase.
+                setStatus(false, `Error al guardar: ${error.message}. Revisa la tabla 'finance_vocab_sets' y las políticas RLS en Supabase.`);
             } finally {
                 document.getElementById('saveBtn').disabled = false;
             }
@@ -699,7 +591,8 @@
 
             } catch (error) {
                 console.error("Error al cargar en Supabase:", error);
-                listEl.innerHTML = `<p class="text-red-500 font-medium">Error al cargar listas: ${error.message}.</p>`;
+                // MEJORA DE ERROR: Muestra el mensaje exacto de Supabase.
+                listEl.innerHTML = `<p class="text-red-500 font-medium">Error al cargar listas: ${error.message}. Revisa las políticas RLS.</p>`;
             }
         }
 
@@ -781,7 +674,7 @@
                 
                 // Asegurar que haya suficientes distractores (si la lista es corta)
                 if (distractors.length < 3) {
-                    // Si no hay suficientes, repetimos algunos o usamos los disponibles
+                    // Si no hay suficientes, usamos los disponibles (o repetimos si es necesario)
                     while (distractors.length < 3 && currentVocabulary.length > 1) {
                         const randomItem = currentVocabulary[Math.floor(Math.random() * currentVocabulary.length)];
                         if (!distractors.includes(randomItem.term) && randomItem.term !== correctAnswer) {
@@ -790,7 +683,6 @@
                     }
                     if (distractors.length > 3) distractors = distractors.slice(0, 3);
                     else if (distractors.length < 3) {
-                         // Si es imposible tener 3 únicos, usamos lo que haya
                          while(distractors.length < 3) distractors.push("Otro Término");
                     }
                 } else {
