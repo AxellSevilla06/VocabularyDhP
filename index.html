@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vocabulario Financiero | Supabase App</title>
+    <!-- Carga de Tailwind CSS para el estilo -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Fuente principal Inter */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f9;
+        }
+        /* Estilos para voltear la tarjeta */
+        .flashcard-front {
+            transform: rotateY(0deg);
+            backface-visibility: hidden;
+            transition: transform 0.6s;
+        }
+        .flashcard-back {
+            transform: rotateY(180deg);
+            backface-visibility: hidden;
+            transition: transform 0.6s;
+        }
+        .flipped .flashcard-front {
+            transform: rotateY(-180deg);
+        }
+        .flipped .flashcard-back {
+            transform: rotateY(0deg);
+        }
+        /* Estilo para el contenedor de desplazamiento */
+        .card-container {
+            scroll-snap-type: x mandatory;
+            overflow-x: scroll;
+            -webkit-overflow-scrolling: touch;
+            padding: 0 4px; /* Ajuste para que las tarjetas no toquen los bordes */
+        }
+        .card-item {
+            scroll-snap-align: center;
+            flex-shrink: 0;
+            width: 90%; /* Ancho de la tarjeta en móvil */
+            max-width: 400px; /* Ancho máximo en escritorio */
+            margin: 0 10px;
+        }
+        /* Ocultar scrollbar */
+        .card-container::-webkit-scrollbar {
+            display: none;
+        }
+        .card-container {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+        /* Cursor de espera al cargar TTS */
+        .cursor-wait-tts {
+            cursor: wait !important;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="max-w-4xl mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-extrabold text-blue-800">
+                <span class="text-blue-500">FinTech</span> Vocab Builder
+            </h1>
+            <p class="text-lg text-gray-600 mt-2">Generador de Vocabulario de Finanzas, Economía y Contabilidad (Usando Supabase)</p>
+        </header>
+
+        <!-- Sección de Entrada (Input) -->
+        <div id="input-section" class="bg-white p-6 rounded-xl shadow-lg mb-8">
+            <label for="topicInput" class="block text-sm font-medium text-gray-700 mb-2">
+                Escribe el tema específico (Ej: "Instrumentos Derivados", "Informes Contables IFRS"):
+            </label>
+            <div class="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
+                <input type="text" id="topicInput" placeholder="Ej: Bonos de alto rendimiento..."
+                       class="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                <button id="generateBtn" onclick="handleGenerate()"
+                        class="bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 transition duration-300 disabled:bg-gray-400">
+                    Generar 10 Términos
+                </button>
+            </div>
+        </div>
+
+        <!-- Indicador de Carga y Mensajes -->
+        <div id="status-message" class="text-center text-lg font-medium py-4 hidden">
+            <p id="message-text" class="text-blue-600"></p>
+            <div id="loading-spinner" class="mt-2 mx-auto w-6 h-6 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin hidden"></div>
+        </div>
+        
+        <!-- Botones de Acción y Quiz -->
+        <div class="text-center mt-6 flex justify-center space-x-4">
+            <button id="saveBtn" onclick="saveVocabularySet()"
+                    class="bg-green-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-green-700 transition duration-300 disabled:bg-gray-400 hidden">
+                Guardar Lista de Estudio
+            </button>
+            <button id="quizBtn" onclick="startQuiz()"
+                    class="bg-purple-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-purple-700 transition duration-300 disabled:bg-gray-400 hidden">
+                Iniciar Modo Quiz
+            </button>
+        </div>
+
+
+        <!-- Contenedor Principal de Vistas -->
+        <div id="main-content-display" class="mt-8">
+            
+            <!-- Vista de Flashcards -->
+            <div id="flashcard-view">
+                <div id="flashcard-navigation" class="relative">
+                    <!-- Botón ANTERIOR -->
+                    <button id="prevBtn" onclick="prevCard()" 
+                            class="absolute left-0 top-1/2 -mt-8 ml-2 p-3 bg-blue-500 text-white rounded-full shadow-lg z-10 transition duration-300 hover:bg-blue-600 focus:outline-none disabled:opacity-50 hidden md:flex items-center justify-center">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                    </button>
+                
+                    <div id="flashcard-display" class="card-container flex overflow-x-auto justify-start p-4 bg-gray-100 rounded-xl shadow-inner hidden">
+                        <!-- Las flashcards se insertarán aquí -->
+                    </div>
+
+                    <!-- Botón SIGUIENTE -->
+                    <button id="nextBtn" onclick="nextCard()" 
+                            class="absolute right-0 top-1/2 -mt-8 mr-2 p-3 bg-blue-500 text-white rounded-full shadow-lg z-10 transition duration-300 hover:bg-blue-600 focus:outline-none disabled:opacity-50 hidden md:flex items-center justify-center">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Vista de Quiz -->
+            <div id="quiz-view" class="hidden bg-white p-6 rounded-xl shadow-lg border border-purple-200">
+                <h2 id="quiz-title" class="text-2xl font-bold text-purple-700 mb-4 border-b pb-2"></h2>
+                <div id="quiz-score" class="text-lg text-gray-600 mb-6"></div>
+                <div id="quiz-question-container">
+                    <!-- La pregunta y las opciones se insertarán aquí -->
+                </div>
+                <div id="quiz-feedback" class="mt-4 p-3 rounded-lg font-semibold hidden"></div>
+                <button id="nextQuizBtn" onclick="nextQuizQuestion()"
+                        class="mt-4 w-full bg-blue-500 text-white font-semibold py-3 rounded-lg hover:bg-blue-600 transition duration-300 disabled:bg-gray-400 hidden">
+                    Siguiente Pregunta
+                </button>
+                <button id="endQuizBtn" onclick="endQuiz()"
+                        class="mt-4 w-full bg-red-500 text-white font-semibold py-3 rounded-lg hover:bg-red-600 transition duration-300 hidden">
+                    Terminar Quiz
+                </button>
+            </div>
+            
+        </div>
+        
+        <!-- Sección de Listas Guardadas (Opcional, para el seguimiento) -->
+        <div id="saved-sets-section" class="mt-12">
+            <h2 class="text-2xl font-bold text-gray-800 border-b pb-2 mb-4">Mis Listas Guardadas (Supabase)</h2>
+            <div id="saved-sets-list" class="space-y-4">
+                <p id="loading-saved-sets" class="text-gray-500 italic">Cargando listas guardadas...</p>
+                <!-- Las listas guardadas se cargarán aquí -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <script type="module">
+        // --------------------------------------------------------
+        // Configuración de Supabase y Gemini
+        // --------------------------------------------------------
+        // CLAVES INYECTADAS POR EL USUARIO PARA SU PROYECTO SUPABASE
+        const SUPABASE_URL = 'https://hibfbfjlfwobzmmxgumr.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhpYmZiZmpsZndvYnptbXhndW1yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NDQ3MzEsImV4cCI6MjA4MDAyMDczMX0.2KBbfu0hhTGq49xtoUuHvScZJ6XiBXAgAZBYjCoFJC0'; 
+        
+        // *******************************************************************
+        //  ✅ CLAVE DE GEMINI INTEGRADA: AIzaSyDbqo4FdlrFt84nTS9SYnx7maUH27lF4ws
+        // *******************************************************************
+        const GEMINI_API_KEY = "AIzaSyDbqo4FdlrFt84nTS9SYnx7maUH27lF4ws"; 
+        
+        let supabase = null;
+        let userId = null; 
+        let currentVocabulary = []; 
+        let currentCardIndex = 0; 
+
+        // Variables de estado del Quiz
+        let isQuizMode = false;
+        let quizQuestions = [];
+        let currentQuizIndex = 0;
+        let score = 0;
+
+        // Exportar funciones para que sean accesibles desde el ámbito global (window)
+        window.handleGenerate = handleGenerate;
+        window.saveVocabularySet = saveVocabularySet;
+        window.viewSet = viewSet;
+        window.deleteSet = deleteSet;
+        window.flipCard = flipCard;
+        window.nextCard = nextCard;
+        window.prevCard = prevCard;
+        window.startQuiz = startQuiz; 
+        window.checkAnswer = checkAnswer; 
+        window.endQuiz = endQuiz; 
+        window.speakTerm = speakTerm; // Nueva función para Texto a Voz
+
+        // --- Utilidades para Texto a Voz (TTS) ---
+
+        /** Convierte un Base64 a ArrayBuffer. */
+        function base64ToArrayBuffer(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        /** Crea un archivo WAV a partir de datos PCM. */
+        function pcmToWav(pcm16, sampleRate) {
+            const numChannels = 1;
+            const bytesPerSample = 2; // Int16
+            const blockAlign = numChannels * bytesPerSample;
+            const byteRate = sampleRate * blockAlign;
+            const dataLength = pcm16.byteLength;
+            const buffer = new ArrayBuffer(44 + dataLength);
+            const view = new DataView(buffer);
+
+            // Funciones de utilidad para escribir en el DataView
+            const writeString = (view, offset, string) => {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            };
+
+            // RIFF chunk descriptor
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + dataLength, true); // ChunkSize
+            writeString(view, 8, 'WAVE');
+
+            // fmt sub-chunk
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+            view.setUint16(20, 1, true); // AudioFormat (1 for PCM)
+            view.setUint16(22, numChannels, true); // NumChannels
+            view.setUint32(24, sampleRate, true); // SampleRate
+            view.setUint32(28, byteRate, true); // ByteRate
+            view.setUint16(32, blockAlign, true); // BlockAlign
+            view.setUint16(34, 16, true); // BitsPerSample (16-bit)
+
+            // data sub-chunk
+            writeString(view, 36, 'data');
+            view.setUint32(40, dataLength, true); // Subchunk2Size
+
+            // Escribir los datos PCM
+            let offset = 44;
+            for (let i = 0; i < pcm16.length; i++, offset += 2) {
+                view.setInt16(offset, pcm16[i], true);
+            }
+
+            return new Blob([buffer], { type: 'audio/wav' });
+        }
+        
+        /** Genera y reproduce el audio de un término en inglés. */
+        async function speakTerm(term, iconId) {
+            const icon = document.getElementById(iconId);
+            if (icon.classList.contains('cursor-wait-tts')) return; // Evitar clics múltiples
+
+            icon.classList.add('cursor-wait-tts');
+            icon.classList.add('animate-pulse');
+
+            try {
+                // El modelo Kore tiene una voz firme y clara.
+                const prompt = `Say in a clear professional voice: ${term}`;
+                const payload = {
+                    contents: [{
+                        parts: [{ text: prompt }]
+                    }],
+                    generationConfig: {
+                        responseModalities: ["AUDIO"],
+                        speechConfig: {
+                            voiceConfig: {
+                                prebuiltVoiceConfig: { voiceName: "Kore" }
+                            }
+                        }
+                    },
+                };
+                
+                const apiKey = GEMINI_API_KEY; 
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`TTS API Error: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                const part = result?.candidates?.[0]?.content?.parts?.[0];
+                const audioData = part?.inlineData?.data;
+                const mimeType = part?.inlineData?.mimeType;
+
+                if (!audioData || !mimeType || !mimeType.startsWith("audio/L16")) {
+                    throw new Error("TTS response missing or invalid audio data.");
+                }
+
+                // Extraer el Sample Rate del mimeType (ej: "audio/L16;rate=24000")
+                const rateMatch = mimeType.match(/rate=(\d+)/);
+                const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
+                
+                const pcmData = base64ToArrayBuffer(audioData);
+                const pcm16 = new Int16Array(pcmData);
+                
+                // 1. Convertir PCM a Blob WAV
+                const wavBlob = pcmToWav(pcm16, sampleRate);
+                
+                // 2. Crear URL para el Blob y reproducir
+                const audioUrl = URL.createObjectURL(wavBlob);
+                const audio = new Audio(audioUrl);
+                audio.play();
+
+                // Liberar la URL del Blob después de que termine de reproducirse
+                audio.onended = () => {
+                    URL.revokeObjectURL(audioUrl);
+                };
+
+            } catch (error) {
+                console.error("Error al generar o reproducir TTS:", error);
+                setStatus(false, `Error TTS: No se pudo reproducir el audio de "${term}".`);
+            } finally {
+                icon.classList.remove('cursor-wait-tts');
+                icon.classList.remove('animate-pulse');
+            }
+        }
+
+
+        // --- Inicialización de Supabase y Generación de ID de Usuario ---
+        function initSupabase() {
+            try {
+                // Inicializar Supabase Client con las claves del usuario
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log("Supabase inicializado con URL del usuario.");
+
+                // Usamos un ID de usuario anónimo persistente (guardado en el navegador)
+                let storedUserId = localStorage.getItem('supabase_user_id');
+                if (!storedUserId) {
+                    storedUserId = crypto.randomUUID();
+                    localStorage.setItem('supabase_user_id', storedUserId);
+                }
+                userId = storedUserId;
+                
+                const loadingSetsEl = document.getElementById('loading-saved-sets');
+                if (loadingSetsEl) loadingSetsEl.remove();
+                
+                // Muestra el ID del usuario actual
+                const userDisplay = document.createElement('p');
+                userDisplay.className = 'text-sm text-gray-500 mt-4 break-words';
+                userDisplay.textContent = `Tu ID de Usuario (Supabase): ${userId}`;
+                document.getElementById('saved-sets-section').prepend(userDisplay);
+                
+                loadSavedSets();
+
+            } catch (error) {
+                console.error("Error en la inicialización de Supabase:", error);
+                document.getElementById('message-text').textContent = `Error al iniciar Supabase. Revisa la URL y la clave.`;
+            }
+        }
+
+        // --- Funciones de Utilidad y UI ---
+
+        /** Muestra/oculta mensajes de estado y el spinner de carga. */
+        function setStatus(isLoading, message = '') {
+            const statusDiv = document.getElementById('status-message');
+            const messageText = document.getElementById('message-text');
+            const spinner = document.getElementById('loading-spinner');
+            const generateBtn = document.getElementById('generateBtn');
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+
+            if (isLoading) {
+                statusDiv.classList.remove('hidden');
+                messageText.textContent = message;
+                spinner.classList.remove('hidden');
+                generateBtn.disabled = true;
+                if (prevBtn) prevBtn.classList.add('hidden');
+                if (nextBtn) nextBtn.classList.add('hidden');
+            } else {
+                spinner.classList.add('hidden');
+                generateBtn.disabled = false;
+                if (!message) {
+                    statusDiv.classList.add('hidden');
+                } else {
+                    statusDiv.classList.remove('hidden');
+                    messageText.textContent = message;
+                }
+            }
+        }
+
+        /** Actualiza la visibilidad de los botones Anterior/Siguiente (Solo en modo Flashcard) */
+        function updateNavButtons() {
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+
+            if (currentVocabulary.length <= 1) {
+                prevBtn.classList.add('hidden');
+                nextBtn.classList.add('hidden');
+                return;
+            }
+
+            prevBtn.classList.remove('hidden');
+            nextBtn.classList.remove('hidden');
+            prevBtn.disabled = currentCardIndex === 0;
+            nextBtn.disabled = currentCardIndex === currentVocabulary.length - 1;
+        }
+
+        /** Muestra la tarjeta en el índice especificado, desplazando el contenedor. */
+        function showCard(index) {
+            currentCardIndex = index;
+            const container = document.getElementById('flashcard-display');
+            const card = document.getElementById(`card-${index}`);
+            
+            if (card) {
+                const containerWidth = container.offsetWidth;
+                const cardOffset = card.offsetLeft;
+                const scrollPosition = cardOffset - (containerWidth / 2) + (card.offsetWidth / 2);
+                
+                container.scrollTo({
+                    left: scrollPosition,
+                    behavior: 'smooth'
+                });
+            }
+            updateNavButtons();
+        }
+
+        /** Navega a la tarjeta anterior. */
+        function prevCard() {
+            if (currentCardIndex > 0) {
+                showCard(currentCardIndex - 1);
+            }
+        }
+
+        /** Navega a la tarjeta siguiente. */
+        function nextCard() {
+            if (currentCardIndex < currentVocabulary.length - 1) {
+                showCard(currentCardIndex + 1);
+            }
+        }
+
+        /** Alterna entre la vista de Flashcard y la vista de Quiz */
+        function toggleView(showQuiz) {
+            isQuizMode = showQuiz;
+            document.getElementById('flashcard-view').classList.toggle('hidden', showQuiz);
+            document.getElementById('quiz-view').classList.toggle('hidden', !showQuiz);
+            document.getElementById('saveBtn').classList.toggle('hidden', showQuiz || currentVocabulary.length === 0);
+            document.getElementById('quizBtn').classList.toggle('hidden', showQuiz || currentVocabulary.length === 0);
+        }
+
+
+        /** Renderiza la lista de tarjetas de vocabulario. */
+        function renderFlashcards(vocabList) {
+            toggleView(false); // Asegura que estemos en la vista de Flashcard
+            const display = document.getElementById('flashcard-display');
+            display.innerHTML = '';
+            
+            if (vocabList && vocabList.length > 0) {
+                display.classList.remove('hidden');
+                document.getElementById('saveBtn').classList.remove('hidden');
+                document.getElementById('quizBtn').classList.remove('hidden');
+                currentVocabulary = vocabList;
+
+                vocabList.forEach((item, index) => {
+                    const cardHtml = `
+                        <div id="card-${index}" class="card-item bg-white rounded-xl shadow-xl transition-all duration-300 transform hover:scale-[1.02] cursor-pointer" onclick="flipCard(${index})">
+                            <div class="relative w-full h-96">
+                                
+                                <!-- Cara Frontal (Término) -->
+                                <div class="flashcard-front absolute inset-0 p-6 flex flex-col items-center justify-center text-center border-4 border-blue-400 rounded-xl">
+                                    <h3 class="text-sm font-bold text-gray-500 mb-2">Término ${index + 1} / ${vocabList.length}</h3>
+                                    <div class="flex items-center space-x-2">
+                                        <p class="text-4xl font-extrabold text-blue-800">${item.term}</p>
+                                        <!-- Botón TTS -->
+                                        <button onclick="event.stopPropagation(); speakTerm('${item.term}', 'tts-icon-${index}')"
+                                                class="text-blue-500 hover:text-blue-700 p-2 rounded-full transition duration-150 focus:outline-none"
+                                                id="tts-icon-${index}">
+                                            <!-- Icono de altavoz (lucide-react icon: Volume2) -->
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-volume-2">
+                                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                                                <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <p class="mt-4 text-gray-400 italic text-sm">Toca para ver la definición</p>
+                                </div>
+                                
+                                <!-- Cara Trasera (Definición y Ejemplo) -->
+                                <div class="flashcard-back absolute inset-0 p-6 flex flex-col justify-start text-left border-4 border-blue-600 bg-blue-50 rounded-xl">
+                                    <h3 class="text-xl font-bold text-blue-800 border-b pb-2 mb-3">${item.term}</h3>
+                                    <div class="space-y-4">
+                                        <div>
+                                            <p class="text-sm font-semibold text-gray-700">Concepto (ES):</p>
+                                            <p class="text-base text-gray-900">${item.spanishConcept || 'N/A'}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-semibold text-gray-700">Definición (EN):</p>
+                                            <p class="text-base text-gray-900">${item.definition}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm font-semibold text-gray-700">Ejemplo (EN):</p>
+                                            <p class="text-base italic text-gray-600">"${item.example}"</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    display.insertAdjacentHTML('beforeend', cardHtml);
+                });
+
+                showCard(0);
+                
+            } else {
+                display.classList.add('hidden');
+                document.getElementById('saveBtn').classList.add('hidden');
+                document.getElementById('quizBtn').classList.add('hidden');
+                currentVocabulary = [];
+                updateNavButtons();
+            }
+        }
+        
+        // --- Lógica del Generador de Vocabulario (API de Gemini) ---
+
+        /** Maneja el clic del botón de generar. */
+        async function handleGenerate() {
+            const topic = document.getElementById('topicInput').value.trim();
+            if (!topic) {
+                setStatus(false, "Por favor, introduce un tema para generar vocabulario.");
+                return;
+            }
+
+            setStatus(true, `Generando vocabulario sobre "${topic}"...`);
+            
+            try {
+                const systemPrompt = "You are an expert financial and economic vocabulary generator. Your task is to generate exactly 10 advanced English terms related to the user's specified topic. For each term, provide a concise English definition, one comprehensive English example sentence, AND a concise Spanish concept/translation for the term. The output must be a JSON array.";
+                const userQuery = `Generate 10 English financial, economic, or accounting terms for the topic: "${topic}".`;
+
+                const payload = {
+                    contents: [{ parts: [{ text: userQuery }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "ARRAY",
+                            description: "An array of English financial vocabulary terms.",
+                            items: {
+                                type: "OBJECT",
+                                properties: {
+                                    term: { type: "STRING", description: "The English financial term." },
+                                    definition: { type: "STRING", description: "A concise English definition." },
+                                    example: { type: "STRING", description: "A professional English example sentence." },
+                                    spanishConcept: { type: "STRING", description: "The concise Spanish concept/translation for the term." }
+                                },
+                                required: ["term", "definition", "example", "spanishConcept"]
+                            }
+                        }
+                    }
+                };
+
+                const apiKey = GEMINI_API_KEY; 
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+                let response = null;
+                for (let i = 0; i < 3; i++) {
+                    try {
+                        response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        if (response.ok) break; 
+                    } catch (e) {
+                        console.warn(`Intento ${i + 1} fallido. Reintentando en ${Math.pow(2, i)} segundos...`);
+                        if (i < 2) await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+                        else throw new Error("Fallo en la conexión después de varios reintentos.");
+                    }
+                }
+                
+                if (!response.ok) {
+                    throw new Error(`Error de la API: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                
+                const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!jsonText) {
+                    throw new Error("Respuesta inválida de la API.");
+                }
+
+                const vocabList = JSON.parse(jsonText);
+                
+                renderFlashcards(vocabList);
+                setStatus(false, `¡Vocabulario de "${topic}" generado con éxito! (${vocabList.length} términos)`);
+
+            } catch (error) {
+                console.error("Error al generar vocabulario:", error);
+                setStatus(false, `Error: No se pudo generar el vocabulario. ${error.message}. Verifica que la clave de Gemini sea válida.`);
+                renderFlashcards([]);
+            }
+        }
+        
+        // --- Funciones de Supabase (Guardar y Cargar) ---
+        
+        /** Guarda el set de vocabulario actual en Supabase. */
+        async function saveVocabularySet() {
+            if (!userId || currentVocabulary.length === 0) {
+                setStatus(false, "Error: No hay vocabulario para guardar o el usuario no está identificado.");
+                return;
+            }
+
+            const topic = document.getElementById('topicInput').value.trim() || 'Lista sin título';
+            setStatus(true, "Guardando lista de estudio en Supabase...");
+            document.getElementById('saveBtn').disabled = true;
+
+            try {
+                // NOTA: Se asume que la tabla 'finance_vocab_sets' ya existe y tiene RLS configurado
+                const { error } = await supabase
+                    .from('finance_vocab_sets')
+                    .insert([
+                        {
+                            topic: topic,
+                            user_id: userId, // Usamos el ID generado por la aplicación
+                            vocabulary: currentVocabulary,
+                            count: currentVocabulary.length,
+                        }
+                    ]);
+
+                if (error) throw error;
+
+                // Después de guardar, recargar la lista
+                await loadSavedSets();
+                setStatus(false, "¡Lista de estudio guardada con éxito en Supabase!");
+                document.getElementById('saveBtn').classList.add('hidden'); 
+            } catch (error) {
+                console.error("Error al guardar en Supabase:", error);
+                setStatus(false, `Error al guardar: ${error.message}. Asegúrate de que la tabla y RLS están configurados.`);
+            } finally {
+                document.getElementById('saveBtn').disabled = false;
+            }
+        }
+
+        /** Carga los sets guardados por el usuario. */
+        async function loadSavedSets() {
+            if (!supabase || !userId) return;
+
+            const listElement = document.getElementById('saved-sets-list');
+            listElement.innerHTML = '<p class="text-gray-500 italic">Cargando listas guardadas desde Supabase...</p>';
+
+            try {
+                // Obtener solo los sets de este usuario
+                const { data: savedSets, error } = await supabase
+                    .from('finance_vocab_sets')
+                    .select('id, created_at, topic, count, vocabulary') // Solo seleccionamos los campos necesarios
+                    .eq('user_id', userId)
+                    .order('created_at', { ascending: false }); // Ordenar por más reciente
+
+                if (error) throw error;
+                
+                if (!savedSets || savedSets.length === 0) {
+                    listElement.innerHTML = '<p class="text-gray-500">Aún no has guardado ninguna lista de vocabulario.</p>';
+                    return;
+                }
+
+                listElement.innerHTML = savedSets.map(set => {
+                    const date = new Date(set.created_at).toLocaleDateString() || 'N/A';
+                    
+                    const encodedVocab = encodeURIComponent(JSON.stringify(set.vocabulary));
+                    
+                    return `
+                        <div class="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+                            <div class="flex-grow">
+                                <p class="font-semibold text-blue-700">${set.topic}</p>
+                                <p class="text-sm text-gray-500">${set.count} términos • Guardado el ${date}</p>
+                            </div>
+                            <div class="space-x-2 flex-shrink-0">
+                                <button onclick="viewSet('${set.topic.replace(/'/g, "\\'")}', '${encodedVocab}')"
+                                        class="text-blue-500 hover:text-blue-700 font-medium text-sm">
+                                    Ver
+                                </button>
+                                <button onclick="deleteSet('${set.id}')"
+                                        class="text-red-500 hover:text-red-700 font-medium text-sm">
+                                    Eliminar
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+            } catch (error) {
+                console.error("Error al cargar las listas guardadas desde Supabase:", error);
+                listElement.innerHTML = `<p class="text-red-500">Error al cargar las listas: ${error.message}</p>`;
+            }
+        }
+        
+        /** Muestra un set de vocabulario guardado. */
+        function viewSet(topic, encodedVocab) {
+            try {
+                const vocab = JSON.parse(decodeURIComponent(encodedVocab));
+                document.getElementById('topicInput').value = topic;
+
+                renderFlashcards(vocab);
+                setStatus(false, `Lista "${topic}" cargada con éxito. ¡A estudiar!`);
+                document.getElementById('saveBtn').classList.add('hidden'); 
+            } catch (error) {
+                console.error("Error al visualizar el set:", error);
+                setStatus(false, "Error al cargar el set de vocabulario.");
+            }
+        }
+        
+        /** Elimina un set de vocabulario guardado. */
+        async function deleteSet(docId) {
+            const confirmationModal = document.createElement('div');
+            confirmationModal.className = 'fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50';
+            confirmationModal.innerHTML = `
+                <div class="bg-white p-6 rounded-lg shadow-2xl max-w-sm mx-auto">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">Confirmar Eliminación</h3>
+                    <p class="text-gray-600 mb-6">¿Estás seguro de que quieres eliminar esta lista de estudio de forma permanente?</p>
+                    <div class="flex justify-end space-x-4">
+                        <button id="cancelDelete" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">Cancelar</button>
+                        <button id="confirmDelete" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">Eliminar</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(confirmationModal);
+
+            document.getElementById('cancelDelete').onclick = () => {
+                document.body.removeChild(confirmationModal);
+            };
+            
+            document.getElementById('confirmDelete').onclick = async () => {
+                document.body.removeChild(confirmationModal);
+                
+                if (!supabase || !userId) {
+                    setStatus(false, "Error de identificación al intentar eliminar.");
+                    return;
+                }
+
+                try {
+                    // Eliminar de la tabla 'finance_vocab_sets' donde el ID coincida
+                    const { error } = await supabase
+                        .from('finance_vocab_sets')
+                        .delete()
+                        .eq('id', docId);
+
+                    if (error) throw error;
+                    
+                    // Recargar la lista después de la eliminación
+                    await loadSavedSets();
+                    setStatus(false, "Lista eliminada correctamente.");
+                } catch (error) {
+                    console.error("Error al eliminar el documento en Supabase:", error);
+                    setStatus(false, `Error al eliminar la lista: ${error.message}`);
+                }
+            };
+        }
+
+        /** Voltea la tarjeta al hacer clic. */
+        function flipCard(index) {
+            const card = document.getElementById(`card-${index}`);
+            card.classList.toggle('flipped');
+        }
+
+        // --- Lógica del Quiz ---
+
+        /** Mezcla un array (Algoritmo de Fisher-Yates) */
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        /** Prepara las preguntas del quiz a partir del vocabulario cargado. */
+        function prepareQuizQuestions() {
+            if (currentVocabulary.length === 0) return [];
+
+            const allConcepts = currentVocabulary.map(item => item.spanishConcept);
+            const questions = [];
+
+            currentVocabulary.forEach(correctItem => {
+                let incorrectConcepts = allConcepts.filter(c => c !== correctItem.spanishConcept);
+                shuffleArray(incorrectConcepts);
+
+                // Tomar 3 opciones incorrectas (o menos si hay menos de 3)
+                const options = [
+                    correctItem.spanishConcept,
+                    ...(incorrectConcepts.slice(0, 3))
+                ];
+                
+                shuffleArray(options); // Mezclar las opciones
+                
+                questions.push({
+                    term: correctItem.term,
+                    correctConcept: correctItem.spanishConcept,
+                    options: options,
+                    answered: false
+                });
+            });
+
+            return shuffleArray(questions); // Mezclar el orden de las preguntas
+        }
+
+        /** Inicia el modo Quiz. */
+        function startQuiz() {
+            if (currentVocabulary.length === 0) {
+                setStatus(false, "¡Primero genera o carga una lista de vocabulario para empezar el quiz!");
+                return;
+            }
+
+            quizQuestions = prepareQuizQuestions();
+            currentQuizIndex = 0;
+            score = 0;
+            toggleView(true); // Cambiar a la vista de Quiz
+            renderQuizQuestion();
+        }
+
+        /** Renderiza la pregunta actual del quiz. */
+        function renderQuizQuestion() {
+            const questionContainer = document.getElementById('quiz-question-container');
+            const feedbackEl = document.getElementById('quiz-feedback');
+            const nextBtn = document.getElementById('nextQuizBtn');
+            const endBtn = document.getElementById('endQuizBtn');
+            const quizScoreEl = document.getElementById('quiz-score');
+
+            feedbackEl.classList.add('hidden');
+            nextBtn.classList.add('hidden');
+            
+            if (currentQuizIndex >= quizQuestions.length) {
+                // Final del quiz
+                questionContainer.innerHTML = `
+                    <div class="p-6 bg-green-50 rounded-xl text-center">
+                        <h3 class="text-2xl font-bold text-green-700 mb-3">¡Quiz Finalizado!</h3>
+                        <p class="text-xl text-gray-700">Tu puntuación final es:</p>
+                        <p class="text-5xl font-extrabold text-green-600 mt-2">${score} / ${quizQuestions.length}</p>
+                        <p class="mt-4 text-gray-500">¡Vuelve a intentarlo para mejorar tu marca!</p>
+                    </div>
+                `;
+                endBtn.classList.remove('hidden');
+                quizScoreEl.innerHTML = '';
+                return;
+            }
+
+            const question = quizQuestions[currentQuizIndex];
+            const currentTopic = document.getElementById('topicInput').value.trim();
+            
+            document.getElementById('quiz-title').textContent = `Quiz: ${currentTopic || 'Vocabulario'} (${currentQuizIndex + 1}/${quizQuestions.length})`;
+            quizScoreEl.innerHTML = `Puntuación actual: <span class="font-bold text-purple-600">${score}</span>`;
+
+            // Crear las opciones de respuesta
+            const optionsHtml = question.options.map((option, index) => `
+                <button onclick="checkAnswer(this, '${option.replace(/'/g, "\\'")}')"
+                        data-option="${option}"
+                        class="w-full text-left p-4 my-2 border border-gray-300 rounded-lg bg-gray-50 hover:bg-gray-200 transition duration-150 focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-800 disabled:opacity-100">
+                    ${String.fromCharCode(65 + index)}. ${option}
+                </button>
+            `).join('');
+
+            // Construir la pregunta
+            questionContainer.innerHTML = `
+                <div class="mb-6 p-4 bg-purple-50 border-l-4 border-purple-400 rounded-md">
+                    <p class="text-xl font-semibold text-purple-800">¿Cuál es el concepto en español para el término:</p>
+                    <p class="text-3xl font-extrabold text-purple-900 mt-2">"${question.term}"</p>
+                </div>
+                <div id="options-container" class="space-y-2">
+                    ${optionsHtml}
+                </div>
+            `;
+            endBtn.classList.add('hidden');
+        }
+
+        /** Verifica la respuesta seleccionada. */
+        function checkAnswer(selectedButton, selectedConcept) {
+            if (quizQuestions[currentQuizIndex].answered) return;
+            
+            const question = quizQuestions[currentQuizIndex];
+            question.answered = true;
+            const isCorrect = selectedConcept === question.correctConcept;
+            const feedbackEl = document.getElementById('quiz-feedback');
+            const optionsContainer = document.getElementById('options-container');
+            const nextBtn = document.getElementById('nextQuizBtn');
+            
+            // Deshabilitar todas las opciones
+            Array.from(optionsContainer.children).forEach(btn => {
+                btn.disabled = true;
+            });
+
+            if (isCorrect) {
+                score++;
+                feedbackEl.classList.remove('hidden', 'bg-red-100', 'text-red-800');
+                feedbackEl.classList.add('bg-green-100', 'text-green-800');
+                feedbackEl.textContent = "¡Correcto! Puntuación: " + score;
+                selectedButton.classList.add('bg-green-500', 'text-white', 'font-bold', 'border-green-700');
+            } else {
+                feedbackEl.classList.remove('hidden', 'bg-green-100', 'text-green-800');
+                feedbackEl.classList.add('bg-red-100', 'text-red-800');
+                feedbackEl.textContent = `Incorrecto. La respuesta correcta era: "${question.correctConcept}"`;
+                selectedButton.classList.add('bg-red-500', 'text-white', 'font-bold', 'border-red-700');
+                
+                // Resaltar la respuesta correcta
+                Array.from(optionsContainer.children).forEach(btn => {
+                    if (btn.dataset.option === question.correctConcept) {
+                        btn.classList.add('border-green-700', 'bg-green-200', 'text-green-900');
+                    }
+                });
+            }
+            
+            nextBtn.classList.remove('hidden');
+            document.getElementById('quiz-score').innerHTML = `Puntuación actual: <span class="font-bold text-purple-600">${score}</span>`;
+        }
+
+        /** Pasa a la siguiente pregunta del quiz. */
+        function nextQuizQuestion() {
+            currentQuizIndex++;
+            renderQuizQuestion();
+        }
+
+        /** Termina el quiz y regresa a la vista de flashcards. */
+        function endQuiz() {
+            toggleView(false); // Regresar a la vista de Flashcard
+            setStatus(false, `Quiz finalizado. Obtuviste ${score} de ${quizQuestions.length} preguntas.`);
+        }
+
+
+        // Iniciar la aplicación al cargar la página
+        window.onload = initSupabase;
+    </script>
+</body>
+</html>
